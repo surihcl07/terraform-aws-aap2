@@ -1,0 +1,327 @@
+
+EKS deployment using terraform
+
+https://learn.hashicorp.com/tutorials/terraform/eks
+
+For this tutorial, you will need:
+
+an AWS account
+the AWS CLI, installed and configured
+
+ # aws configure
+ # aws eks
+
+
+AWS IAM Authenticator
+the Kubernetes CLI, also known as kubectl
+
+
+
+
+
+curl -o aws-iam-authenticator https://s3.us-west-2.amazonaws.com/amazon-eks/1.21.2/2021-07-05/bin/linux/amd64/aws-iam-authenticator
+openssl sha1 -sha256 aws-iam-authenticator
+chmod +x ./aws-iam-authenticator
+mkdir -p $HOME/bin && cp ./aws-iam-authenticator $HOME/bin/aws-iam-authenticator && export PATH=$PATH:$HOME/bin
+echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
+aws-iam-authenticator help
+
+
+Terraform installation
+
+#sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
+#wget -O- https://apt.releases.hashicorp.com/gpg |     gpg --dearmor |     sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg
+ 1877  62;c
+#gpg --no-default-keyring     --keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg     --fingerprint
+#echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+#https://apt.releases.hashicorp.com $(lsb_release -cs) main" |     sudo tee /etc/apt/sources.list.d/hashicorp.list
+#sudo apt update
+#sudo apt-get install terraform
+
+
+Terraform EKS cluster deployment
+
+clone git repo 
+
+#git clone https://github.com/hashicorp/learn-terraform-provision-eks-cluster
+
+
+#terraform init -upgrade
+#terraform plan
+#terraform plan -out=eks.txt
+#terraform apply
+
+
+#aws eks --region $(terraform output -raw region) update-kubeconfig     --name $(terraform output -raw cluster_name)
+
+#kubectl get nodes
+
+
+
+service account creation 
+
+#kubectl create serviceaccount superuser1
+
+creating cluster role
+
+root@home:~/learn-terraform-provision-eks-cluster# cat superrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+ name: superuser
+rules:
+- apiGroups: [""]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+
+#kubectl apply -f superrole.yaml
+
+
+user rolebinding with cluster role
+
+#kubectl create rolebinding superuser1:superuser --clusterrole superuser --serviceaccount default:superuser1
+
+pulling service account secrets
+
+#kubectl describe serviceaccount superuser1
+
+root@home:~/learn-terraform-provision-eks-cluster# kubectl describe serviceaccount superuser1
+Name:                superuser1
+Namespace:           default
+Labels:              <none>
+Annotations:         <none>
+Image pull secrets:  <none>
+Mountable secrets:   superuser1-token-c8slt
+Tokens:              superuser1-token-c8slt
+Events:              <none>
+root@home:~/learn-terraform-provision-eks-cluster# 
+
+
+Token generation using service account secret
+
+#TOKEN=$(kubectl get secret <superuser1-token> -o json | jq -Mr '.data.token' | base64 -d)
+
+#TOKEN=$(kubectl get secret superuser1-token-k8zcj -o json | jq -Mr '.data.token' | base64 -d)
+
+
+Certificate generation usng service account secret
+
+#kubectl get secret <superuser1-token> -o json | jq -Mr '.data["ca.crt"]' | base64 -d > ca.crt
+
+#kubectl get secret superuser1-token-k8zcj -o json | jq -Mr '.data["ca.crt"]' | base64 -d > ca.crt
+
+
+
+
+
+
+-------------------------------------------------------------
+
+Create ECR repo
+
+create below tf files and execute
+
+root@home:~/learn-terraform-ecr# cat ecr-resource.tf 
+resource "aws_ecr_repository" "aap2_ecr_repo" {
+  name                 = var.ecr_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = false
+  }
+}
+root@home:~/learn-terraform-ecr# cat main.tf 
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "4.28.0"
+    }
+  }
+}
+
+provider "aws" {
+  # Configuration options
+  region = var.region
+}
+root@home:~/learn-terraform-ecr# cat variables.tf 
+variable "region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-east-2"
+}
+
+variable "ecr_name"{
+  description = "ECR name"
+  type        = string
+  default     = "aap2-ecr"
+
+}
+
+
+#terraform init
+#terraform plan
+#terraform apply
+
+
+
+pull AAP supported image for execution
+
+
+#docker login -u='2072595|AAP2-Surendra' -p=eyJhbGciOiJSUzUxMiJ9.eyJzdWIiOiIyMDVlZDBiYWU1OGE0ODk2OTJjYTA2MzUzYzFlYmY4OSJ9.sp52WZBs68ZI1CCMSOvKxhlui_qLGuudZiOhpxA7kfBrlyp2OibgQ_h2VCnWLakj0lPr7PfycPiJKRunQwkdtWZsrscJE3Y00EaDOljHgU7sJQw6c68zSDoaClpg_t-dkpzNHahEhSlWaxqQWPjSFIZzPkeatbs9Rn2jIFhcnOQCFo9Nm65BIR1BbgjbiS4dib2szMwokmaJN4FpyDgiZU0uTpAcsshIiV-VoAS4ln2FFQ5We6CEdJpMuS9CsNyYTSGCX6Spgsrzy73MjrRT3LE9qRhJ5RMI2TUejI29SEjYYpQR4ahnqirM0DD0gKg6wT_VneIiKtW_X5mU9WJO8DIJ3zmlyzpQzRKfDTAkS3JO7SEf-p5HPCKPzt8kMLhbs8J-S6HPiYCLqoRRuuzy-Lg4FOnoSTgst1ryjMvXA8Hv2fsyZ1c2C1BRR9DTxzDhYBj6PZmHTgXX3HAWF6pBBpnw09weHJ7z9Lhak2R8pxhMQnQ2vntmivLW95ZaVPhB4U0_NG4mMdsxgydfDeYIv0xRSinrkhmd0Vm5pMicZpNDRRLo23P5I6GbQBgJb6lPfByDWo3aD1rSGju5Nw1nkHr9R9Df-yhhF4ONLD8N8NCwbsSfEWZSlk6GQMVviblk07iWuZQ_jNfprLGqyJmk_2aMiaEldRD2WuZDsYMh-T8 registry.redhat.io
+
+
+
+
+#docker pull registry.redhat.io/ansible-automation-platform-22/ee-minimal-rhel8:1.0.0-175
+
+Login to AWS consle portal and goto ECR repositories , click on push "view push commands" to get push commands
+
+aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 633110147685.dkr.ecr.us-east-2.amazonaws.com
+
+#docker tag aap2-ecr:latest 120674320582.dkr.ecr.us-east-2.amazonaws.com/aap2-ecr:latest
+#docker push 120674320582.dkr.ecr.us-east-2.amazonaws.com/aap2-ecr:latest
+#aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 120674320582.dkr.ecr.us-east-2.amazonaws.com
+#docker push 120674320582.dkr.ecr.us-east-2.amazonaws.com/aap2-ecr:latest
+
+
+
+Create ECR repo and tag docker image to ecr for pushing to ECR
+
+#docker tag registry.redhat.io/ansible-automation-platform-22/ee-minimal-rhel8:1.0.0-175 public.ecr.aws/s4y2u7z6/aap2-ecr:latest
+
+
+
+login to ECR repo to push image
+
+#aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws/s4y2u7z6
+#docker push public.ecr.aws/s4y2u7z6/aap2-ecr:latest
+
+
+get the ecr AWS user login password for Container credentials in AAP2
+
+#aws ecr-public get-login-password --region us-east-1 
+
+
+
+
+
+terraform RDS postgres deployment
+
+https://learn.hashicorp.com/tutorials/terraform/aws-rds?in=terraform/aws
+
+
+clone the git repo
+
+#git clone https://github.com/hashicorp/learn-terraform-rds.git
+
+#cd learn-terraform-rds/
+
+update postgres version main.tf 
+
+#vim main.tf 
+#export TF_VAR_db_password="hashicorp"
+
+#terraform init
+#terraform plan -out=rds.txt
+#terraform apply
+
+
+Apply complete! Resources: 14 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+rds_hostname = <sensitive>
+rds_port = <sensitive>
+rds_username = <sensitive>
+
+
+#psql -h $(terraform output -raw rds_hostname) -p $(terraform output -raw rds_port) -U $(terraform output -raw rds_username) postgres
+
+$ CREATE DATABASE aap2Controller;
+CREATE DATABASE
+
+
+root@home:~/learn-terraform-rds# psql -h $(terraform output -raw rds_hostname) -p $(terraform output -raw rds_port) -U $(terraform output -raw rds_username) postgres
+Password for user postgres: 
+psql (10.21 (Ubuntu 10.21-0ubuntu0.18.04.1), server 13.7)
+WARNING: psql major version 10, server major version 13.
+         Some psql features might not work.
+SSL connection (protocol: TLSv1.2, cipher: ECDHE-RSA-AES256-GCM-SHA384, bits: 256, compression: off)
+Type "help" for help.
+
+postgres=> CREATE DATABASE aap2Controller;
+CREATE DATABASE
+postgres=> \l
+                                    List of databases
+      Name      |  Owner   | Encoding |   Collate   |    Ctype    |   Access privileges   
+----------------+----------+----------+-------------+-------------+-----------------------
+ aap2controller | postgres | UTF8     | en_US.UTF-8 | en_US.UTF-8 | 
+ postgres       | postgres | UTF8     | en_US.UTF-8 | en_US.UTF-8 | 
+ rdsadmin       | rdsadmin | UTF8     | en_US.UTF-8 | en_US.UTF-8 | rdsadmin=CTc/rdsadmin+
+                |          |          |             |             | rdstopmgr=Tc/rdsadmin
+ template0      | rdsadmin | UTF8     | en_US.UTF-8 | en_US.UTF-8 | =c/rdsadmin          +
+                |          |          |             |             | rdsadmin=CTc/rdsadmin
+ template1      | postgres | UTF8     | en_US.UTF-8 | en_US.UTF-8 | =c/postgres          +
+                |          |          |             |             | postgres=CTc/postgres
+(5 rows)
+
+postgres=> 
+
+
+
+
+
+------------ AAP2 controller cluster ------
+
+Launch EC2 instances
+
+copy ansible-automation-platform-setup-bundle-2.2.0-8.1.tar.gz to one of the nodes or bastion node
+
+unzip and update inventory with host and postgres details
+
+setup ssh keys from bastion node or control node to all nodes going to be par of controller cluster
+
+[automationcontroller]
+172.31.24.114 ansible_connection=local
+172.31.25.6
+
+[all:vars]
+ansible_become=true
+
+admin_password='ActNow12!'
+
+pg_host='aap2.ci3beodxfe6h.us-east-1.rds.amazonaws.com'
+pg_port='5432'
+
+pg_database='aap2controller'
+pg_username='postgres'
+pg_password='postgres'
+pg_sslmode='prefer'
+required_ram=3098
+
+
+
+https://docs.ansible.com/automation-controller/latest/html/administration/containers_instance_groups.html
+
+
+https://docs.ansible.com/ansible-tower/latest/html/administration/external_execution_envs.html
+
+https://docs.ansible.com/automation-controller/latest/html/userguide/execution_environments.html
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
