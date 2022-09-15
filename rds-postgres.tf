@@ -7,29 +7,6 @@ resource "aws_db_subnet_group" "aap2-subnet" {
   }
 }
 
-resource "aws_security_group" "rds" {
-  name   = "aap2_rds"
-  vpc_id = module.vpc.vpc_id
-
-  ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "aap2_rds"
-  }
-}
-
 resource "aws_db_parameter_group" "aap2-para-grp" {
   name   = "aap2"
   family = "postgres13"
